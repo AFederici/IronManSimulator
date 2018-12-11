@@ -11,6 +11,8 @@ public:
 	void calibrate();
 	void generateColorBounds();
 	void calcDifferences();
+	void calcDiffContours();
+	double customDist(cv::Point2f p, double x, double y);
 	
 	ofVideoGrabber cam; //grabs data from camera
 	ofPixels duplicateCam; 	//used for storing same data as cam but allow it to be changed
@@ -40,4 +42,14 @@ public:
 	ofImage diff; //stores the difference between previous and the camera
 	
 	cv::Scalar diffMean; //stores color information (Vec4f)
+	
+	
+	//NEW BELOW
+	std::vector<std::vector<double>> toDraw;
+	int colorThresh;
+	std::vector<double> centerMovement;
+	double minDist;
+	int closestCont;
+	ofxCv::ContourFinder cont;
+	cv::Point target;
 };

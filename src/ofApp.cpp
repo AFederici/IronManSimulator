@@ -12,7 +12,7 @@ void ofApp::setup() {
 	//placeholder for largest contour
 	largestContour = 0;
 	
-	someText = "Place Hand Below";
+	someText = "Place Hand Below - ";
 	
 	//stores the min and max values for H, S, B
 	c0 = {0,0,0,0};
@@ -35,6 +35,8 @@ void ofApp::setup() {
 	// so they have the same size and type as cam
 	imitate(previous, cam);
 	imitate(diff, cam);
+	
+	//NEW BELOW
 }
 
 void ofApp::update() {
@@ -71,9 +73,16 @@ void ofApp::update() {
 			ofxCv::toOf(test, img);
 			img.update();
 		}
+		
+		//second screen calculations done here
+		calcDifferences();
+		calcDiffContours();
+	
 
 		points.clear();
 		vels.clear();
+		minDist = 100000;
+		closestCont = 1;
 		//after all calculations do the actual contour findings
 		if (count > runTime + error){
 			ofColor c = ofColor::fromHsb(c0[0], c1[0], c2[0]);
@@ -82,16 +91,21 @@ void ofApp::update() {
 			contourFinder.findContours(cam);
 			contourFinder.setSortBySize(true);
 			//int range = 15 > contourFinder.size() ? 0 : contourFinder.size() - 15;
+			
 			for (int i = contourFinder.size() - 1; i > 0; i--){
 				points.push_back(contourFinder.getCentroid(i));
 				vels.push_back(contourFinder.getVelocity(i));
+				double testDist = customDist(points[i], centerMovement[0], centerMovement[1]);
+				if (testDist < minDist){
+					minDist = testDist;
+					closestCont = i;
+					target = cv::Point(centerMovement[0], centerMovement[1]);
+				}
 			}
 		}
 		
 		count++;
 		
-		//second screen calculations done here
-		calcDifferences();
 	}
 	
 	
@@ -102,7 +116,8 @@ void ofApp::draw() {
 	cam.draw(0,0);
 	if (count < runTime + error){
 		ofSetColor(0,0,0);
-		ofDrawBitmapString(someText, 50, 200);
+		std::string returnText = someText + std::to_string(runTime + error - count);
+		ofDrawBitmapString(returnText, 50, 50);
 		ofSetColor(255,0,0);
 		ofNoFill();
 		ofDrawRectangle(50, 250, 140, 140);
@@ -124,7 +139,25 @@ void ofApp::draw() {
 			std::cout << v << std::endl;
 		}
 		ofSetColor(255);
+		
+		//NEW
+		ofSetColor(255,0,0);
+		ofSetLineWidth(6);
+		/*
+		if (minDist < 600){
+			std::vector<cv::Point> trav = contourFinder.getContour(closestCont);
+			for (auto p : trav){
+				ofDrawCircle(p.x, p.y, 0.5);
+			}
+			ofSetColor(0,100,100);
+			ofDrawCircle(target.x, target.y, 15);
+		}
+		*/
 		contourFinder.draw();
+		ofSetColor(0,0,255);
+		cont.draw();
+		
+		ofSetColor(255);
 
 	}
 	ofSetColor(255);
@@ -144,6 +177,16 @@ void ofApp::draw() {
 	ofDrawRectangle(720, 15, diffGreen, 10);
 	ofSetColor(0, 0, 255);
 	ofDrawRectangle(720, 30, diffBlue, 10);
+	
+	//NEW
+	ofSetColor(0, 255, 0);
+	ofSetLineWidth(3);
+	for (auto p : toDraw){
+		ofDrawSphere(p[0], p[1], 1);
+	}
+	
+	ofSetColor(255);
+
 }
 
 //adds the average HSB to a vector for the given frame this function is called during
@@ -206,4 +249,33 @@ void ofApp::calcDifferences(){
 	// you can only do math between Scalars,
 	// but it's easy to make a Scalar from an int (shown here)
 	diffMean *= Scalar(50);
+	cont.findContours(diff);
+}
+
+void ofApp::calcDiffContours(){
+	centerMovement = {0,0,0,0};
+	toDraw.clear();
+	colorThresh = 510;
+	for (int i = 720; i < 1440; i  += 2){
+		for (int j = 0; j < 512; j += 2){
+			ofColor col = diff.getColor(i, j);
+			std::vector<double> holder(2,0);
+			if (col[0] + col[1] + col[2] > colorThresh){
+				holder[0] = i;
+				holder[1] = j;
+				centerMovement[2] += i;
+				centerMovement[3] += j;
+				toDraw.push_back(holder);
+			}
+		}
+	}
+	
+	centerMovement[0] = centerMovement[2] / toDraw.size();
+	centerMovement[1] = centerMovement[3] / toDraw.size();
+	
+}
+
+double ofApp::customDist(cv::Point2f p, double x, double y){
+	int xAdjusted = p.x + 720;
+	return std::sqrt( ((xAdjusted - x) * (xAdjusted - x)) + ((p.y - y) * (p.y - y)));
 }
