@@ -7,10 +7,14 @@ void ofApp::setup() {
 	//this is the camera
 	cam.setup(720,512);
 	ofSetFrameRate(30);
+	arm.load("arm.png");
+	background.load("background.jpg");
+	energyShot.load("animation.png");
+	alien.load("alien.png");
 	
-	
-	//placeholder for largest contour
-	largestContour = 0;
+	isAlienDead = true;
+	alienLocation.y = 10;
+	difficulty = 0;
 	
 	someText = "Place Hand Below - ";
 	
@@ -18,6 +22,8 @@ void ofApp::setup() {
 	c0 = {0,0,0,0};
 	c1 = {0,0,0,0};
 	c2 = {0,0,0,0};
+	
+	decision = cv::Point2f(0,0);
 	
 	//used for looping through and collecting data
 	count = 0;
@@ -56,7 +62,6 @@ void ofApp::update() {
 		//if you haven't calibrated for long enough keep doing it
 		if (count > error && count < runTime){
 			calibrate();
-			std::cout << previous.getColor(50,50) << ": " << count << std::endl;
 		}
 		
 		//if slightly after the calibration time but shouldnt continue forever
@@ -67,63 +72,57 @@ void ofApp::update() {
 		//currently not working, will possibly be taken out but the goal is just
 		//to create a binary image based on a given foreground color
 		if (count >= runTime){
-			cv::Mat test = toCv(duplicateCam);
-			img.setImageType(OF_IMAGE_GRAYSCALE);
-			cv::inRange(test, Scalar(0, 0, 0), Scalar(0, 0, 0), test);
-			ofxCv::toOf(test, img);
-			img.update();
+			updateEnergyShot();
+			updateAlien();
+			checkHit();
 		}
 		
 		//second screen calculations done here
-		calcDifferences();
+		frameDifferences();
 		calcDiffContours();
 	
 
 		points.clear();
 		vels.clear();
 		minDist = 100000;
-		closestCont = 1;
 		//after all calculations do the actual contour findings
 		if (count > runTime + error){
 			ofColor c = ofColor::fromHsb(c0[0], c1[0], c2[0]);
-			contourFinder.setTargetColor(c, TRACK_COLOR_HS);
-			contourFinder.setFindHoles(true);
-			contourFinder.findContours(cam);
-			contourFinder.setSortBySize(true);
-			//int range = 15 > contourFinder.size() ? 0 : contourFinder.size() - 15;
-			
-			for (int i = contourFinder.size() - 1; i > 0; i--){
-				points.push_back(contourFinder.getCentroid(i));
-				vels.push_back(contourFinder.getVelocity(i));
-				double testDist = customDist(points[i], centerMovement[0], centerMovement[1]);
-				if (testDist < minDist){
-					minDist = testDist;
-					closestCont = i;
-					target = cv::Point(centerMovement[0], centerMovement[1]);
-				}
-			}
+			calcColorContours(c);
+			handLocDecision();
 		}
-		
 		count++;
-		
 	}
-	
-	
 }
 
 void ofApp::draw() {
+	
 	ofSetColor(255);
-	cam.draw(0,0);
+	ofNoFill();
 	if (count < runTime + error){
-		ofSetColor(0,0,0);
+		cam.draw(0,0);
 		std::string returnText = someText + std::to_string(runTime + error - count);
-		ofDrawBitmapString(returnText, 50, 50);
+		ofDrawBitmapStringHighlight(returnText, 50, 50);
 		ofSetColor(255,0,0);
-		ofNoFill();
+	
 		ofDrawRectangle(50, 250, 140, 140);
+		ofSetColor(255);
 	}
 	else{
 		ofClear(ofColor(0,0,0));
+		ofSetColor(255);
+		diff.draw(0, 0);
+		
+		float diffRed = diffMean[0];
+		float diffGreen = diffMean[1];
+		float diffBlue = diffMean[2];
+		
+		ofSetColor(255, 0, 0);
+		ofDrawRectangle(0, 0, diffRed, 10);
+		ofSetColor(0, 255, 0);
+		ofDrawRectangle(0, 15, diffGreen, 10);
+		ofSetColor(0, 0, 255);
+		ofDrawRectangle(0, 30, diffBlue, 10);
 		int enumerator = 0;
 		
 		for (cv::Point2f p : points){
@@ -134,59 +133,42 @@ void ofApp::draw() {
 			
 			enumerator++;
 		}
+
 		
-		for (cv::Vec2f v : vels){
-			std::cout << v << std::endl;
-		}
-		ofSetColor(255);
-		
-		//NEW
+		//red
 		ofSetColor(255,0,0);
 		ofSetLineWidth(6);
-		/*
-		if (minDist < 600){
-			std::vector<cv::Point> trav = contourFinder.getContour(closestCont);
-			for (auto p : trav){
-				ofDrawCircle(p.x, p.y, 0.5);
-			}
-			ofSetColor(0,100,100);
-			ofDrawCircle(target.x, target.y, 15);
-		}
-		*/
 		contourFinder.draw();
+		if (redAvg.x > 0){
+			ofDrawCircle(redAvg.x, redAvg.x, 50);
+		}
+		//blue
 		ofSetColor(0,0,255);
 		cont.draw();
+		if (midCont.x > 0){
+			ofDrawCircle(midCont.x, midCont.x, 20);
+		}
+		if (blueAvg.x > 0){
+			ofDrawCircle(blueAvg.x, blueAvg.x, 50);
+		}
 		
+		ofSetColor(0,200,200);
+		ofDrawCircle(decision.x, decision.x, 50);
 		ofSetColor(255);
-
+		ofFill();
+		background.draw(720, 0, 700, 500);
+		energyShot.draw(energyShotLocation.x , energyShotLocation.y, 30, 200);
+		arm.draw( 1400 -  decision.x , 250, 180, 270);
+		alien.draw(alienLocation.x, alienLocation.y, 160 - difficulty, 160 - difficulty);
 	}
-	ofSetColor(255);
 	
-	//second part
-	ofSetColor(255);
-	diff.draw(720, 0);
-	
-	// use the [] operator to get elements from a Scalar
-	float diffRed = diffMean[0];
-	float diffGreen = diffMean[1];
-	float diffBlue = diffMean[2];
-	
-	ofSetColor(255, 0, 0);
-	ofDrawRectangle(720, 0, diffRed, 10);
-	ofSetColor(0, 255, 0);
-	ofDrawRectangle(720, 15, diffGreen, 10);
-	ofSetColor(0, 0, 255);
-	ofDrawRectangle(720, 30, diffBlue, 10);
-	
-	//NEW
 	ofSetColor(0, 255, 0);
 	ofSetLineWidth(3);
-	for (auto p : toDraw){
-		ofDrawSphere(p[0], p[1], 1);
+	for (auto p : motionPixels){
+		int xShifted = p[0] + 60 < 1440 ? p[0] + 60 - 720 : p[0] - 720;
+		ofDrawSphere(xShifted , p[1], 1);
 	}
-	
 	ofSetColor(255);
-
 }
 
 //adds the average HSB to a vector for the given frame this function is called during
@@ -217,7 +199,6 @@ void ofApp::calibrate(){
 //bounds based on some assumed error
 void ofApp::generateColorBounds(){
 	for (auto vec : pixels){
-		//std::cout << vec << " - ";
 		c0[3] += vec[0];
 		c1[3] += vec[1];
 		c2[3] += vec[2];
@@ -230,12 +211,10 @@ void ofApp::generateColorBounds(){
 	c0[1] = c0[3] * 1.5 / (16 * l);
 	c1[1] = c1[3] * 1.5 / (16 * l);
 	c2[1] = c2[3] * 1.5 / (16 * l);
-	std::cout << c0[0] << "," << c1[0] << "," << c2[0] << std::endl;
-	std::cout << c0[1] << "," << c1[1] << "," << c2[1] << std::endl;
 }
 
 
-void ofApp::calcDifferences(){
+void ofApp::frameDifferences(){
 	// take the absolute difference of prev and cam and save it inside diff
 	absdiff(cam, previous, diff);
 	diff.update();
@@ -250,32 +229,128 @@ void ofApp::calcDifferences(){
 	// but it's easy to make a Scalar from an int (shown here)
 	diffMean *= Scalar(50);
 	cont.findContours(diff);
+	cont.setSortBySize(true);
+	midCont = cont.size() > 0 ? cont.getCenter(cont.size()-1) : cv::Point2f(0,0);
+	if (cont.size()-1 > 1){
+		for (int i = cont.size()-1; i > int((cont.size() - 1)/2); i--){
+			blueAvg += cont.getAverage(i);
+		}
+		blueAvg.x = blueAvg.x / ((cont.size()-1) - int((cont.size() - 1)/2));
+		blueAvg.y = blueAvg.y / ((cont.size()-1) - int((cont.size() - 1)/2));
+	}
+	else{
+		blueAvg = cv::Point2f(0,0);
+	}
+	blueRunningAvg.push_back(blueAvg);
+	if (blueRunningAvg.size() > 20){
+		blueRunningAvg.pop_front();
+	}
+	blueAvg = cv::Point2f(0,0);
+	for (auto it=blueRunningAvg.begin(); it!=blueRunningAvg.end(); ++it){
+		blueAvg += *it;
+	}
+	blueAvg.x = blueAvg.x / (1.0 * blueRunningAvg.size());
+	blueAvg.y = blueAvg.y / (1.0 * blueRunningAvg.size());
+	
+}
+
+void ofApp::calcColorContours(ofColor c){
+	contourFinder.setTargetColor(c, TRACK_COLOR_HS);
+	contourFinder.setFindHoles(true);
+	contourFinder.findContours(cam);
+	contourFinder.setSortBySize(true);
+	redAvg = cv::Point2f(0,0);
+	
+	if (contourFinder.size() > 0){
+		int last = contourFinder.size() - 1;
+		redAvg += contourFinder.getCenter(last);
+		points.push_back(contourFinder.getCentroid(last));
+		vels.push_back(contourFinder.getVelocity(last));
+		double testDist = customDist(points[last], centerMovement[0], centerMovement[1]);
+		if (testDist < minDist){
+			minDist = testDist;
+			target = cv::Point(centerMovement[0], centerMovement[1]);
+		}
+	}
+
+	else{
+		redAvg = cv::Point2f(0,0);
+	}
+	
+	redRunningAvg.push_back(redAvg);
+	if (redRunningAvg.size() > 20){
+		redRunningAvg.pop_front();
+	}
+	redAvg = cv::Point2f(0,0);
+	for (auto it=redRunningAvg.begin(); it!=redRunningAvg.end(); ++it){
+		if (it->x > 20){
+			redAvg += 0.2 * (*it);
+		}
+		
+		redAvg += *it;
+	}
+	redAvg.x = redAvg.x / (1.0 * redRunningAvg.size());
+	redAvg.y = redAvg.y / (1.0 * redRunningAvg.size());
 }
 
 void ofApp::calcDiffContours(){
 	centerMovement = {0,0,0,0};
-	toDraw.clear();
-	colorThresh = 510;
-	for (int i = 720; i < 1440; i  += 2){
-		for (int j = 0; j < 512; j += 2){
+	motionPixels.clear();
+	motionThresh = 510;
+	int beginningFrameX = 720;
+	int endingFrameX = 1440;
+	int beginningFrameY = 0;
+	int endingFrameY = 512;
+	for (int i = beginningFrameX; i < endingFrameX; i  += 2){
+		for (int j = beginningFrameY; j < endingFrameY; j += 2){
 			ofColor col = diff.getColor(i, j);
 			std::vector<double> holder(2,0);
-			if (col[0] + col[1] + col[2] > colorThresh){
+			if (col[0] + col[1] + col[2] > motionThresh){
 				holder[0] = i;
 				holder[1] = j;
 				centerMovement[2] += i;
 				centerMovement[3] += j;
-				toDraw.push_back(holder);
+				motionPixels.push_back(holder);
 			}
 		}
 	}
 	
-	centerMovement[0] = centerMovement[2] / toDraw.size();
-	centerMovement[1] = centerMovement[3] / toDraw.size();
+	centerMovement[0] = centerMovement[2] / motionPixels.size();
+	centerMovement[1] = centerMovement[3] / motionPixels.size();
 	
 }
 
 double ofApp::customDist(cv::Point2f p, double x, double y){
 	int xAdjusted = p.x + 720;
 	return std::sqrt( ((xAdjusted - x) * (xAdjusted - x)) + ((p.y - y) * (p.y - y)));
+}
+
+void ofApp::handLocDecision(){
+	decision = redAvg.y > 100 ? ((0.2 * blueAvg) + (1.8 * redAvg)) / 2 : blueAvg;
+}
+
+void ofApp::updateEnergyShot(){
+	energyShotLocation.y = 270 - ((count * 7) % 500);
+	if (270 - ((count * 7) % 500) > 260){
+		energyShotLocation.x = 1450 - decision.x;
+	}
+}
+
+void ofApp::updateAlien(){
+	if (isAlienDead){
+		int max = 1420;
+		int min = 760;
+		int range = max - min + 1;
+		alienLocation.x = rand() % range + min;
+		isAlienDead = false;
+		difficulty += 10;
+	}
+}
+
+void ofApp::checkHit(){
+	if (energyShotLocation.x + 15 <= alienLocation.x + (160 - difficulty) && energyShotLocation.x + 15 >= alienLocation.x){
+		if (energyShotLocation.y < 50 and energyShotLocation.y > 20){
+			isAlienDead = true;
+		}
+	}
 }
